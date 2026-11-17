@@ -27,6 +27,10 @@
 
 #include "musb_core.h"
 
+void board_musb_setup(const void *pkt) __attribute__((weak));
+void board_musb_ep0(u16 csr, u16 len, u8 state, u16 int_tx)
+	__attribute__((weak));
+
 /* ep0 is always musb->endpoints[0].ep_in */
 #define	next_ep0_request(musb)	next_in_request(&(musb)->endpoints[0])
 
@@ -659,6 +663,8 @@ irqreturn_t musb_g_ep0_irq(struct musb *musb)
 	musb_ep_select(mbase, 0);	/* select ep0 */
 	csr = musb_readw(regs, MUSB_CSR0);
 	len = musb_readb(regs, MUSB_COUNT0);
+	if (board_musb_ep0)
+		board_musb_ep0(csr, len, musb->ep0_state, musb->int_tx);
 
 	dev_dbg(musb->controller, "csr %04x, count %d, myaddr %d, ep0stage %s\n",
 			csr, len,
@@ -792,6 +798,8 @@ setup:
 				break;
 			}
 			musb_read_setup(musb, &setup);
+			if (board_musb_setup)
+				board_musb_setup(&setup);
 			retval = IRQ_HANDLED;
 
 			/* sometimes the RESET won't be reported */

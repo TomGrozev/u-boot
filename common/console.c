@@ -27,6 +27,10 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
+/* Board hook: copy console/debug-UART output to a crash-surviving buffer. */
+__weak void board_console_mirror(char c) { }
+__weak void board_debug_uart_mirror(int ch) { }
+
 #define CSI "\x1b["
 
 static int on_console(const char *name, const char *value, enum env_op op,
@@ -736,6 +740,8 @@ void putc(const char c)
 		return;
 	}
 
+	board_console_mirror(c);
+
 	if (IS_ENABLED(CONFIG_SILENT_CONSOLE) && (gd->flags & GD_FLG_SILENT)) {
 		if (!(gd->flags & GD_FLG_DEVINIT))
 			pre_console_putc(c);
@@ -774,6 +780,13 @@ void puts(const char *s)
 	if (IS_ENABLED(CONFIG_DEBUG_UART) && !(gd->flags & GD_FLG_SERIAL_READY)) {
 		printascii(s);
 		return;
+	}
+
+	{
+		const char *p;
+
+		for (p = s; *p; p++)
+			board_console_mirror(*p);
 	}
 
 	if (IS_ENABLED(CONFIG_SILENT_CONSOLE) && (gd->flags & GD_FLG_SILENT)) {

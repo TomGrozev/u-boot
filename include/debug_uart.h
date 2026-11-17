@@ -76,6 +76,9 @@ static inline void board_debug_uart_init(void)
  */
 void printch(int ch);
 
+/* Board hook: copy debug-UART output to a crash-surviving buffer. */
+void board_debug_uart_mirror(int ch);
+
 /**
  * printascii() - Output an ASCII string to the debug UART
  *
@@ -140,6 +143,7 @@ void printdec(unsigned int value);
 		if (ch == '\n') \
 			_debug_uart_putc('\r'); \
 		_debug_uart_putc(ch); \
+		board_debug_uart_mirror(ch); \
 	} \
 \
 	void printch(int ch) \

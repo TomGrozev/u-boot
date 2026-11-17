@@ -93,6 +93,14 @@ static int do_fastboot_usb(int argc, char *const argv[],
 	if (ret)
 		return ret;
 
+	{
+		extern void board_fastboot_registered(void)
+			__attribute__((weak));
+
+		if (board_fastboot_registered)
+			board_fastboot_registered();
+	}
+
 	if (!g_dnl_board_usb_cable_connected()) {
 		puts("\rUSB cable not detected.\n" \
 		     "Command exit.\n");

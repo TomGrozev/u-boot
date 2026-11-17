@@ -21,6 +21,8 @@
 #include "linux-compat.h"
 #include "musb_core.h"
 #include "musb_uboot.h"
+#include "../../../board/libreecho/lidar/lidar_usb.h"
+#include "../../../board/libreecho/lidar/crumbs.h"
 
 #define DBG_I(fmt, ...) \
 	pr_info(fmt, ##__VA_ARGS__)
@@ -176,10 +178,28 @@ static void mt_usb_phy_recover(void)
  * MUSB Glue code
  ******************************************************************************/
 
+#define MTK_USB_L1INTS		0xa0
+#define MTK_USB_L1INTM		0xa4
+#define MTK_USB_L1_TX		BIT(0)
+#define MTK_USB_L1_RX		BIT(1)
+#define MTK_USB_L1_USBCOM	BIT(2)
+#define MTK_USB_L1_DMA		BIT(3)
+#define MTK_USB_L1_CORE		(MTK_USB_L1_TX | MTK_USB_L1_RX | \
+				 MTK_USB_L1_USBCOM | MTK_USB_L1_DMA)
+
+#if defined(LIDAR_KEEP_LK_PHY) && LIDAR_KEEP_LK_PHY
+#define lidar_keep_lk_phy()	1
+#else
+#define lidar_keep_lk_phy()	0
+#endif
+
+static struct lidar_usb_stats usb_stats;
+
 static irqreturn_t mtk_musb_interrupt(int irq, void *__hci)
 {
 	struct musb		*musb = __hci;
 	irqreturn_t		retval = IRQ_NONE;
+	u32			l1_raw, l1_active;
 
 	/* read and flush interrupts */
 	musb->int_usb = musb_readb(musb->mregs, MUSB_INTRUSB);
@@ -193,14 +213,106 @@ static irqreturn_t mtk_musb_interrupt(int irq, void *__hci)
 	if (musb->int_rx)
 		musb_writew(musb->mregs, MUSB_INTRRX, musb->int_rx);
 
-	if (musb->int_usb || musb->int_tx || musb->int_rx)
+	/*
+	 * MTK level-1 status.  L1INTM is programmed with the core sources only
+	 * (see mtk_musb_init), so mask L1INTS with it exactly like the Linux
+	 * and vendor handlers: OTG VBUSVALID/IDDIG bits are not part of the
+	 * MUSB core's interrupt contract here.
+	 */
+	l1_raw = readl(musb->mregs + MTK_USB_L1INTS);
+	l1_active = l1_raw & readl(musb->mregs + MTK_USB_L1INTM);
+	if (musb->int_usb) {
+		usb_stats.usb_events++;
+		if (musb->int_usb & MUSB_INTR_RESET)
+			usb_stats.usb_reset++;
+		if (musb->int_usb & MUSB_INTR_SUSPEND)
+			usb_stats.usb_suspend++;
+		if (musb->int_usb & MUSB_INTR_RESUME)
+			usb_stats.usb_resume++;
+		if (musb->int_usb & MUSB_INTR_CONNECT)
+			usb_stats.usb_connect++;
+		if (musb->int_usb & MUSB_INTR_DISCONNECT)
+			usb_stats.usb_disconnect++;
+		if (musb->int_usb & MUSB_INTR_SOF)
+			usb_stats.usb_sof++;
+		if (musb->int_usb & MUSB_INTR_SESSREQ)
+			usb_stats.usb_sessreq++;
+		if (musb->int_usb & MUSB_INTR_VBUSERROR)
+			usb_stats.usb_vbuserr++;
+	}
+	if (musb->int_tx)
+		usb_stats.tx_events++;
+	if (musb->int_rx)
+		usb_stats.rx_events++;
+	if (l1_raw) {
+		usb_stats.l1_raw_events++;
+		usb_stats.l1_last_raw = l1_raw;
+	}
+	if (l1_active) {
+		usb_stats.l1_active_events++;
+		usb_stats.l1_last_active = l1_active;
+	}
+
+	if (musb->int_usb || musb->int_tx || musb->int_rx ||
+	    (l1_active & MTK_USB_L1_CORE))
 		retval |= musb_interrupt(musb);
+
+	if (board_fastboot_poll)
+		board_fastboot_poll(&usb_stats);
 
 	return retval;
 }
 
 /* musb_core does not call enable / disable in a balanced manner <sigh> */
 static bool enabled;
+
+/*
+ * mt_usb_phy_recover() clears the force-device bits that poweron() set, so
+ * restore them after every controller start.  Without this the PHY can be
+ * left in its default (host) role even though MUSB is a peripheral.
+ */
+static void mt_usb_phy_force_device(void)
+{
+	/* OTG enable */
+	USBPHY_SET8(0x20, 0x10);
+	/* release force suspendm */
+	USBPHY_CLR8(0x6a, 0x04);
+	mdelay(1);
+	/* force enter device mode */
+	USBPHY_CLR8(0x6c, 0x10);
+	USBPHY_SET8(0x6c, 0x2E);
+	USBPHY_SET8(0x6d, 0x3E);
+}
+
+/*
+ * Analog receive tuning applied after recover/force-device: byte 0x00 bit 5
+ * is RG_USB20_INTR_EN and byte 0x18 low nibble is RG_USB20_SQTH.  Upstream
+ * Linux phy-mtk-tphy leaves INTR_EN on and selects SQTH=2
+ * (drivers/phy/mediatek/phy-mtk-tphy.c:475, :498); Kaeru LK enumerates this
+ * board with INTR_EN off and SQTH=2.
+ */
+static void mt_usb_phy_tune(bool intr_en)
+{
+	if (intr_en)
+		USBPHY_SET8(0x00, 0x20);
+	else
+		USBPHY_CLR8(0x00, 0x20);
+	USBPHY_WRITE8(0x18, (USBPHY_READ8(0x18) & 0xf0) | 0x02);
+}
+
+#if defined(LIDAR_PHY_BISECT) && LIDAR_PHY_BISECT
+/*
+ * 20 s fallback of the PHY bisect image, applied once by
+ * board_fastboot_poll(): switch to the Kaeru LK values.  Kept next to
+ * mt_usb_phy_tune() so the two value sets cannot drift apart.
+ */
+void lidar_usb_phy_lk_fallback(void)
+{
+	mt_usb_phy_tune(false);
+	lidar_crumb("PHY_BISECT lk-fallback");
+	printf("PHY_BISECT lk-fallback\n");
+}
+#endif
 
 static int mtk_musb_enable(struct musb *musb)
 {
@@ -214,7 +326,27 @@ static int mtk_musb_enable(struct musb *musb)
 	if (enabled)
 		return 0;
 
-	mt_usb_phy_recover();
+	if (!lidar_keep_lk_phy()) {
+		mt_usb_phy_recover();
+		mt_usb_phy_force_device();
+		/*
+		 * Match the PHY tuning of the working Kaeru LK on this board
+		 * (dumps/20261117-lidar-kaeru-usb-regs/peek.txt): INTR_EN off
+		 * (byte 0x00 bit 5) and HQA SQTH=2 (byte 0x18 low nibble).
+		 * Upstream Linux tphy also selects SQTH=2; mt_usb_phy_recover()
+		 * and the HQA default were leaving U-Boot in a different
+		 * receive/termination state.
+		 *
+		 * The PHY bisect build starts from the Linux values instead
+		 * and board_fastboot_poll() falls back to the LK values once
+		 * if no SETUP arrives within 20 s.
+		 */
+		mt_usb_phy_tune(IS_ENABLED(LIDAR_PHY_BISECT));
+		if (IS_ENABLED(LIDAR_PHY_BISECT)) {
+			lidar_crumb("PHY_BISECT upstream");
+			printf("PHY_BISECT upstream\n");
+		}
+	}
 
 	enabled = true;
 
@@ -231,7 +363,8 @@ static void mtk_musb_disable(struct musb *musb)
 	if (!enabled)
 		return;
 
-	mt_usb_phy_savecurrent();
+	if (!lidar_keep_lk_phy())
+		mt_usb_phy_savecurrent();
 
 	enabled = false;
 }
@@ -260,6 +393,13 @@ static int mtk_musb_init(struct musb *musb)
 	}
 
 	musb->isr = mtk_musb_interrupt;
+
+	/*
+	 * Only the MUSB core sources feed the Linux/vendor handler:
+	 * TX/RX/USBCOM/DMA.  In particular leave the OTG VBUSVALID and IDDIG
+	 * level bits (8/9) out, as both mediatek.c and the vendor usb20.c do.
+	 */
+	writel(MTK_USB_L1_CORE, musb->mregs + MTK_USB_L1INTM);
 
 	return 0;
 }
@@ -374,7 +514,8 @@ static int musb_usb_probe(struct udevice *dev)
 	printf("MTK MUSB OTG (Peripheral)\n");
 #endif
 
-	mt_usb_phy_poweron();
+	if (!lidar_keep_lk_phy())
+		mt_usb_phy_poweron();
 
 	return ret;
 }

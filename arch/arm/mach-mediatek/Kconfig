@@ -4,7 +4,11 @@ config SYS_SOC
 	default "mediatek"
 
 config SYS_VENDOR
+	default "libreecho" if TARGET_LIDAR
 	default "mediatek"
+
+config LNX_KRNL_IMG_TEXT_OFFSET_BASE
+	default 0x40000000 if TARGET_LIDAR
 
 choice
 	prompt "MediaTek board select"
@@ -137,6 +141,18 @@ config TARGET_MT8516
 	  Ethernet, IR TX/RX, I2C, I2S, S/PDIF, and built-in Wi-Fi / Bluetooth combo
 	  chip and several DDR3 and DDR4 options.
 
+config TARGET_LIDAR
+	bool "Amazon Echo Plus (2nd generation) chainloaded by MediaTek LK"
+	select ARM64
+	select LINUX_KERNEL_IMAGE_HEADER
+	help
+	  The Amazon Echo Plus (2nd generation), codename "lidar", runs an
+	  MT8516 with Amazon LK as the vendor bootloader.  U-Boot is packed
+	  as the kernel of an Android boot image in boot_a and entered by LK
+	  as an arm64 Linux Image, then takes over as a second-stage loader.
+	  This target never writes storage: it exposes USB fastboot with
+	  RAM boot only.
+
 config TARGET_MT8518
 	bool "MediaTek MT8518 SoC"
 	select ARM64
@@ -161,6 +177,7 @@ config MTK_MEM_MAP_DDR_SIZE
 	default 0x200000000 if TARGET_MT7987 || TARGET_MT7988 || TARGET_MT8188 || TARGET_MT8195
 	default 0xc0000000 if TARGET_MT8365
 	default 0x80000000 if TARGET_MT7981 || TARGET_MT7986 || TARGET_MT8183
+	default 0x3f9c0000 if TARGET_LIDAR
 	default 0x40000000 if TARGET_MT7622 || TARGET_MT8512
 	default 0x20000000
 	help
@@ -187,7 +204,7 @@ config SYS_BOARD
 	default "mt8183" if TARGET_MT8183
 	default "mt8512" if TARGET_MT8512
 	default "mt8516" if TARGET_MT8516
-	default "mt8518" if TARGET_MT8518
+	default "lidar" if TARGET_LIDAR
 	default ""
 	help
 	  This option contains information about board name.
@@ -202,6 +219,7 @@ config SYS_CONFIG_NAME
 	default "mt8183" if TARGET_MT8183
 	default "mt8512" if TARGET_MT8512
 	default "mt8516" if TARGET_MT8516
+	default "lidar" if TARGET_LIDAR
 	default "mt8518" if TARGET_MT8518
 
 config MTK_BROM_HEADER_INFO

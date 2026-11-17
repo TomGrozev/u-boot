@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/*
+ * Amazon Echo Plus (2nd generation), codename "lidar", MT8516.
+ *
+ * U-Boot is the payload of an Android boot image in boot_a, loaded by the
+ * stock Amazon LK as if it were an arm64 Linux Image.  LK has already set up
+ * DRAM, PLLs and the CPU rail, so this tree only describes what U-Boot
+ * drives.  The root compatible is what LK matches when it picks the appended
+ * DTB, hence it comes first.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include "mt8516.dtsi"
+
+/ {
+	model = "Amazon Echo Plus (2nd generation)";
+	compatible = "amzn,lidar-pvt", "amzn,lidar", "mediatek,mt8516";
+
+	chosen {
+		stdout-path = &uart0;
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		/* One 1 GiB rank; the top 6.25 MiB is reserved for TEE. */
+		reg = <0x40000000 0x3f9c0000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+
+		/* BL31 lives below the kernel region and must never be touched. */
+		bl31_secmon_reserved: secmon@43000000 {
+			no-map;
+			reg = <0 0x43000000 0 0x30000>;
+		};
+
+		/* U-Boot breadcrumb log; Kaeru reads it out after a warm reset. */
+		lidar_crumbs: crumbs@43810000 {
+			reg = <0 0x43810000 0 0x60000>;
+		};
+
+		/*
+		 * Linux pstore/ramoops at the placement the product DT uses:
+		 * dmesg record 0x20000, console 0x80000, ftrace 0, pmsg
+		 * 0x20000 (fs/pstore/ram.c allocates them in that order from
+		 * the base).  no-map keeps U-Boot's LMB from ever handing it
+		 * to booti, and stops U-Boot from using it as heap.
+		 */
+		lidar_ramoops: ramoops@60000000 {
+			no-map;
+			reg = <0 0x60000000 0 0x100000>;
+		};
+	};
+
+	/* Reboot via the TOPRGU software reset owned by the watchdog block. */
+	wdt-reboot {
+		compatible = "wdt-reboot";
+		wdt = <&watchdog>;
+	};
+};
+
+&pinctrl {
+	uart0_pins: uart0 {
+		mux {
+			function = "uart";
+			groups = "uart0_0_rxd_txd";
+		};
+	};
+};
+
+/* Output-only debug console on test pad TM58, 1.8 V, 921600 8N1. */
+&uart0 {
+	clock-frequency = <26000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+&watchdog {
+	status = "okay";
+};
+
+/* The only USB port, on the pogo pads; the host side is fastboot. */
+&usb0 {
+	status = "okay";
+	dr_mode = "peripheral";
+};

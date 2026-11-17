@@ -1,0 +1,96 @@
+CONFIG_ARM=y
+CONFIG_ARCH_MEDIATEK=y
+CONFIG_TARGET_LIDAR=y
+# U-Boot runs at the kernel load address LK decompresses to, as an arm64 Image.
+CONFIG_TEXT_BASE=0x40080000
+CONFIG_POSITION_INDEPENDENT=y
+CONFIG_COUNTER_FREQUENCY=13000000
+# Host OpenSSL on this build host lacks the ENGINE_* symbols U-Boot's
+# signing tools need; this image is never signed by mkimage.
+# CONFIG_TOOLS_LIBCRYPTO is not set
+# CONFIG_TOOLS_KWBIMAGE is not set
+# clang 23 rejects some upstream const-qualified clk ops entries that GCC
+# accepts (drivers/clk/mediatek/clk-mtk.c); keep warnings visible.
+# CONFIG_WERROR is not set
+CONFIG_SYS_MALLOC_F_LEN=0x4000
+CONFIG_SYS_MALLOC_LEN=0x2000000
+CONFIG_NR_DRAM_BANKS=1
+CONFIG_DEFAULT_DEVICE_TREE="mt8516-lidar"
+CONFIG_SYS_LOAD_ADDR=0x44000000
+# No UART RX is wired: the console is output only.  Fastboot over USB is the
+# only interface, so there is no autoboot of anything on eMMC.
+CONFIG_DEBUG_UART_BASE=0x11005000
+CONFIG_DEBUG_UART_CLOCK=26000000
+CONFIG_DEBUG_UART=y
+CONFIG_DEBUG_UART_ANNOUNCE=y
+CONFIG_BAUDRATE=921600
+CONFIG_DM_SERIAL=y
+CONFIG_MTK_SERIAL=y
+CONFIG_DM_GPIO=y
+CONFIG_PINCTRL=y
+CONFIG_PINCONF=y
+CONFIG_PINCTRL_MT8516=y
+CONFIG_CLK=y
+CONFIG_BOOTDELAY=0
+CONFIG_USE_BOOTCOMMAND=y
+CONFIG_BOOTCOMMAND="lidar_mark fastboot; fastboot usb 0"
+CONFIG_HUSH_PARSER=y
+CONFIG_SYS_CBSIZE=1024
+CONFIG_SYS_PBSIZE=1048
+CONFIG_BOARD_EARLY_INIT_F=y
+CONFIG_BOARD_LATE_INIT=y
+# Environment never persists: nothing may be written to the eMMC.
+CONFIG_ENV_IS_NOWHERE=y
+CONFIG_ENV_SIZE=0x10000
+# CONFIG_CMD_SAVEENV is not set
+CONFIG_FASTBOOT=y
+CONFIG_CMD_FASTBOOT=y
+CONFIG_USB=y
+CONFIG_USB_GADGET=y
+CONFIG_USB_MUSB_GADGET=y
+CONFIG_USB_MUSB_MT85XX=y
+CONFIG_USB_FUNCTION_FASTBOOT=y
+CONFIG_USB_GADGET_VENDOR_NUM=0x0bb4
+CONFIG_USB_GADGET_PRODUCT_NUM=0x0c01
+CONFIG_USB_GADGET_MANUFACTURER="LibreEcho"
+CONFIG_FASTBOOT_USB_DEV=0
+CONFIG_FASTBOOT_BUF_ADDR=0x60100000
+CONFIG_FASTBOOT_BUF_SIZE=0x10000000
+# No CONFIG_FASTBOOT_FLASH and no MMC driver: flash/erase cannot exist and
+# there is no path that writes the eMMC.
+# "oem run" is the only way to drive pstore display: the fastboot protocol
+# has no command for it.  It stays a RAM-only diagnostic capability.
+CONFIG_FASTBOOT_OEM_RUN=y
+# Read back the Linux pstore/ramoops records placed at 0x60000000.
+# fs/pstore/ram.c allocates dmesg zones, then console, ftrace and pmsg from
+# the base up, so the sizes below are also the zone offsets U-Boot assumes.
+CONFIG_CMD_PSTORE=y
+CONFIG_CMD_PSTORE_MEM_ADDR=0x60000000
+CONFIG_CMD_PSTORE_MEM_SIZE=0x100000
+CONFIG_CMD_PSTORE_RECORD_SIZE=0x20000
+CONFIG_CMD_PSTORE_CONSOLE_SIZE=0x80000
+CONFIG_CMD_PSTORE_FTRACE_SIZE=0x0
+CONFIG_CMD_PSTORE_PMSG_SIZE=0x20000
+CONFIG_CMD_PSTORE_ECC_SIZE=0
+CONFIG_CONSOLE_RECORD=y
+# One whole 0x80000 ramoops console dump plus margin: "pstore display" prints
+# through putc(), so a smaller record cannot be read back at all (see the
+# overflow handling in common/console.c).  The record buffer is a single
+# malloc, well inside CONFIG_SYS_MALLOC_LEN.
+CONFIG_CONSOLE_RECORD_OUT_SIZE=0x100000
+CONFIG_FASTBOOT_CMD_OEM_CONSOLE=y
+CONFIG_CMD_BOOTM=y
+CONFIG_CMD_BOOTI=y
+CONFIG_OF_LIBFDT=y
+CONFIG_GZIP=y
+CONFIG_SUPPORT_RAW_INITRD=y
+# Reboot through the MTK TOPRGU software reset exposed by wdt-mtk.
+CONFIG_WDT=y
+CONFIG_WDT_MTK=y
+# CONFIG_WATCHDOG_AUTOSTART is not set
+CONFIG_SYSRESET=y
+CONFIG_SYSRESET_WATCHDOG=y
+# BL31 is present but U-Boot has no /psci node; keep reset independent of it.
+# CONFIG_PSCI_RESET is not set
+CONFIG_CMD_RESET=y
+# Deliberately absent: MMC, BLK, GPT, filesystem, flash write support.

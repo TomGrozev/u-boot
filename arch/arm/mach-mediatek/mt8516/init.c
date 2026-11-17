@@ -76,10 +76,13 @@ int mtk_soc_early_init(void)
 	return 0;
 }
 
+/* sysreset-uclass provides reset_cpu() when CONFIG_SYSRESET is enabled */
+#if !CONFIG_IS_ENABLED(SYSRESET)
 void reset_cpu(void)
 {
 	psci_system_reset();
 }
+#endif
 
 int print_cpuinfo(void)
 {
